@@ -111,9 +111,14 @@ def cek_perintah_cuaca():
     """Mengecek apakah ada yang mengetik /cuaca di grup Telegram"""
     if not BOT_TOKEN:
         return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
+        # Pastikan tidak ada webhook aktif yang memblokir getUpdates
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=10)
+        
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
         res = requests.get(url, timeout=15).json()
+        print("Respon raw getUpdates:", res)
+        
         updates = res.get("result", [])
         if not updates:
             return
@@ -123,12 +128,16 @@ def cek_perintah_cuaca():
 
         for item in updates:
             last_update_id = item["update_id"]
-            msg = item.get("message", {})
+            msg = item.get("message", {}) or item.get("edited_message", {})
             text = msg.get("text", "").strip().lower()
             chat_id = str(msg.get("chat", {}).get("id", ""))
+            print(f"Terbaca chat -> ID: {chat_id} | Text: {text}")
 
-            if text.startswith("/cuaca") and chat_id in [GRUP_UTAMA, GRUP_KATEMAN]:
-                grup_peminta.add(chat_id)
+            if "/cuaca" in text:
+                if chat_id in [GRUP_UTAMA, f"-100{GRUP_UTAMA.lstrip('-')}"]:
+                    grup_peminta.add(GRUP_UTAMA)
+                elif chat_id in [GRUP_KATEMAN, f"-100{GRUP_KATEMAN.lstrip('-')}"]:
+                    grup_peminta.add(GRUP_KATEMAN)
 
         if last_update_id > 0:
             requests.get(f"{url}?offset={last_update_id + 1}", timeout=10)
@@ -138,6 +147,18 @@ def cek_perintah_cuaca():
 
     except Exception as e:
         print(f"Error cek perintah /cuaca: {e}")
+
+def cek_sapaan_pagi():
+    """Mengirim ucapan selamat pagi & prakiraan cuaca hari ini setiap jam 07:00 WIB"""
+    tz_wib = timezone(timedelta(hours=7))
+    sekarang_wib = datetime.now(tz_wib)
+
+    # Eksekusi hanya pada pukul 07:00 - 07:04 WIB agar terkirim 1x setiap pagi
+    if sekarang_wib.hour == 7 and sekarang_wib.minute < 5:
+        kirim_laporan_per_grup(
+            [GRUP_UTAMA, GRUP_KATEMAN],
+            "🌅 *Selamat pagi!* Semoga harimu menyenangkan.\nBerikut keadaan cuaca hari ini:"
+        )
 
 def cek_notif_hujan_otomatis():
     """Hanya mengirim notifikasi otomatis 1 jam sebelum hujan"""
@@ -203,12 +224,13 @@ def cek_notif_hujan_otomatis():
             print(f"Error cek hujan {lok['nama']}: {e}")
 
 if __name__ == "__main__":
+    cek_perintah_cuaca()
+    
     if IS_MANUAL:
-        # Startup message saat pertama kali klik Run workflow manual di GitHub
         kirim_laporan_per_grup(
             [GRUP_UTAMA, GRUP_KATEMAN],
             "✅ *Bot Cuaca Aktif!* Berikut status cuaca hari ini:"
         )
     else:
-        cek_perintah_cuaca()
+        cek_sapaan_pagi()
         cek_notif_hujan_otomatis()
