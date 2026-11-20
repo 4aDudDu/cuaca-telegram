@@ -30,14 +30,24 @@ def kirim_telegram(pesan):
     if not BOT_TOKEN or not CHAT_ID:
         print("ERROR: BOT_TOKEN atau CHAT_ID kosong!")
         return
+    
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": pesan,
-        "parse_mode": "Markdown"
-    }
-    resp = requests.post(url, json=payload, timeout=15)
-    print("Status Telegram:", resp.status_code, resp.text)
+    
+    # Memecah beberapa Chat ID yang dipisahkan tanda koma
+    daftar_chat_id = [cid.strip() for cid in CHAT_ID.split(",") if cid.strip()]
+    print(f"Mengirim ke {len(daftar_chat_id)} tujuan...")
+    
+    for target_id in daftar_chat_id:
+        payload = {
+            "chat_id": target_id,
+            "text": pesan,
+            "parse_mode": "Markdown"
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            print(f"Status Telegram ({target_id}):", resp.status_code, resp.text)
+        except Exception as e:
+            print(f"Gagal kirim ke {target_id}: {e}")
 
 def main():
     ada_hujan = False
