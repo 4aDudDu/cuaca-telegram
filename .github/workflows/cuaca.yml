@@ -1,0 +1,29 @@
+name: Cek Cuaca Otomatis
+
+on:
+  schedule:
+    # Jalan otomatis setiap 1 jam sekali (di menit ke-00)
+    - cron: '0 * * * *'
+  # Supaya kamu bisa tes jalankan manual kapan saja lewat tombol di GitHub
+  workflow_dispatch:
+
+jobs:
+  run-weather-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ambil kode repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install library requests
+        run: pip install requests
+
+      - name: Jalankan Script Cek Cuaca
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python cek_cuaca.py
