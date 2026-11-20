@@ -2,9 +2,8 @@ name: Cek Cuaca Otomatis
 
 on:
   schedule:
-    # Jalan otomatis setiap 1 jam sekali (di menit ke-00)
-    - cron: '0 * * * *'
-  # Supaya kamu bisa tes jalankan manual kapan saja lewat tombol di GitHub
+    # Cek perintah /cuaca & peringatan hujan setiap 5 menit
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -25,5 +24,4 @@ jobs:
       - name: Jalankan Script Cek Cuaca
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python cek_cuaca.py
