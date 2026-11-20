@@ -2,9 +2,10 @@ import os
 import requests
 from datetime import datetime, timezone, timedelta
 
-# Ambil Token & Chat ID dari GitHub Secrets
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+# Mendeteksi apakah dijalankan lewat tombol manual (workflow_dispatch)
+IS_MANUAL = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
 LOKASI = [
     {
@@ -27,7 +28,7 @@ LOKASI = [
 
 def kirim_telegram(pesan):
     if not BOT_TOKEN or not CHAT_ID:
-        print("Error: BOT_TOKEN atau CHAT_ID belum diset!")
+        print("ERROR: BOT_TOKEN atau CHAT_ID kosong!")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -35,9 +36,13 @@ def kirim_telegram(pesan):
         "text": pesan,
         "parse_mode": "Markdown"
     }
-    requests.post(url, json=payload, timeout=15)
+    resp = requests.post(url, json=payload, timeout=15)
+    print("Status Telegram:", resp.status_code, resp.text)
 
 def main():
+    ada_hujan = False
+    laporan_cerah = []
+
     for lok in LOKASI:
         try:
             url = (
@@ -54,8 +59,6 @@ def main():
 
             tz_lokal = timezone(timedelta(hours=lok["offset_jam"]))
             sekarang = datetime.now(tz_lokal)
-            
-            # Cek prakiraan 1 jam ke depan
             satu_jam_lagi = (sekarang + timedelta(hours=1)).strftime("%Y-%m-%dT%H:00")
 
             if satu_jam_lagi in hourly_times:
@@ -63,22 +66,53 @@ def main():
                 curah_hujan = hourly_precip[idx]
                 peluang = hourly_prob[idx] if hourly_prob[idx] is not None else 0
 
-                print(f"[{lok['nama']}] Jam {satu_jam_lagi}: Hujan={curah_hujan}mm, Peluang={peluang}%")
-
-                # Kirim notif jika curah hujan > 0.2 mm atau peluang hujan >= 60%
+                # Cek apakah 1 jam lagi akan hujan
                 if curah_hujan > 0.2 or peluang >= 60:
-                    jam_tampil = satu_jam_lagi.split("T")[1]
+                    ada_hujan = True
+                    jam_mulai = satu_jam_lagi.split("T")[1]
+                    
+                    # Cari perkiraan sampai jam berapa hujan berlangsung
+                    idx_selesai = idx + 1
+                    max_curah = curah_hujan
+                    max_peluang = peluang
+
+                    while idx_selesai < len(hourly_times):
+                        c_next = hourly_precip[idx_selesai]
+                        p_next = hourly_prob[idx_selesai] if hourly_prob[idx_selesai] is not None else 0
+                        if c_next > 0.2 or p_next >= 50:
+                            if c_next > max_curah:
+                                max_curah = c_next
+                            if p_next > max_peluang:
+                                max_peluang = p_next
+                            idx_selesai += 1
+                        else:
+                            break
+
+                    jam_selesai = hourly_times[idx_selesai].split("T")[1] if idx_selesai < len(hourly_times) else "beberapa jam ke depan"
+
                     pesan = (
-                        f"⚠️ *PERINGATAN DINI HUJAN (1 JAM LAGI)*\n\n"
+                        f"🌧️ *Hai, sebentar lagi mau hujan loh!*\n\n"
                         f"📍 *Lokasi:* {lok['nama']}\n"
-                        f"⏰ *Perkiraan Hujan:* Pukul {jam_tampil} {lok['kode_waktu']}\n"
-                        f"🌧️ *Intensitas:* {curah_hujan} mm\n"
-                        f"📊 *Peluang Hujan:* {peluang}%\n\n"
-                        f"_Siapkan payung/jas hujan atau amankan jemuran!_"
+                        f"⏰ *Perkiraan Hujan:* Pukul *{jam_mulai}* sampai *{jam_selesai} {lok['kode_waktu']}*\n"
+                        f"💧 *Curah Hujan:* ±{max_curah} mm\n"
+                        f"📊 *Peluang Hujan:* {max_peluang}%\n\n"
+                        f"Jangan lupa bawa payung/jas hujan kalau mau keluar, atau buruan angkat jemuran ya! ☂️"
                     )
                     kirim_telegram(pesan)
+                else:
+                    laporan_cerah.append(f"• *{lok['nama']}*: Aman/cerah (peluang hujan {peluang}%)")
+
         except Exception as e:
             print(f"Error pada {lok['nama']}: {e}")
+
+    # Jika dijalankan manual lewat tombol GitHub & cuaca sedang cerah, tetap kirim info tes
+    if IS_MANUAL and not ada_hujan:
+        pesan_tes = (
+            f"☀️ *Hai! Bot Cuaca berhasil terhubung ke grup ini.*\n\n"
+            f"Untuk 1 jam ke depan belum ada tanda-tanda hujan:\n" +
+            "\n".join(laporan_cerah)
+        )
+        kirim_telegram(pesan_tes)
 
 if __name__ == "__main__":
     main()
