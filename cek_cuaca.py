@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+IS_MANUAL = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
 # ID Grup Tujuan
 GRUP_UTAMA = "-5321034844"     # Kateman & Banjarmasin
@@ -46,7 +47,7 @@ def kirim_telegram(chat_id, pesan):
         print(f"Gagal kirim ke {chat_id}: {e}")
 
 def ambil_status_cuaca_hari_ini(lok):
-    """Mengambil status cuaca sepanjang hari ini untuk balasan /cuaca"""
+    """Mengambil status cuaca saat ini dan jadwal hujan sepanjang hari ini"""
     url = (
         f"https://api.open-meteo.com/v1/forecast?"
         f"latitude={lok['lat']}&longitude={lok['lon']}"
@@ -91,6 +92,21 @@ def ambil_status_cuaca_hari_ini(lok):
         f"• Perkiraan Hujan Hari Ini: {info_hujan}"
     )
 
+def kirim_laporan_per_grup(target_grup_list, judul_header):
+    """Mengirim ringkasan cuaca hari ini ke daftar grup yang ditentukan"""
+    for gid in target_grup_list:
+        laporan_grup = []
+        for lok in LOKASI:
+            if gid in lok["tujuan"]:
+                try:
+                    laporan_grup.append(ambil_status_cuaca_hari_ini(lok))
+                except Exception as e:
+                    print(f"Error ambil status {lok['nama']}: {e}")
+        
+        if laporan_grup:
+            pesan = f"{judul_header}\n\n" + "\n\n".join(laporan_grup)
+            kirim_telegram(gid, pesan)
+
 def cek_perintah_cuaca():
     """Mengecek apakah ada yang mengetik /cuaca di grup Telegram"""
     if not BOT_TOKEN:
@@ -111,26 +127,14 @@ def cek_perintah_cuaca():
             text = msg.get("text", "").strip().lower()
             chat_id = str(msg.get("chat", {}).get("id", ""))
 
-            # Deteksi perintah /cuaca atau /cuaca@NamaBot
             if text.startswith("/cuaca") and chat_id in [GRUP_UTAMA, GRUP_KATEMAN]:
                 grup_peminta.add(chat_id)
 
-        # Hapus antrean pesan yang sudah dibaca agar tidak dibalas ulang
         if last_update_id > 0:
             requests.get(f"{url}?offset={last_update_id + 1}", timeout=10)
 
-        for gid in grup_peminta:
-            laporan_grup = []
-            for lok in LOKASI:
-                if gid in lok["tujuan"]:
-                    laporan_grup.append(ambil_status_cuaca_hari_ini(lok))
-            
-            if laporan_grup:
-                pesan = (
-                    f"🌤️ *Status Cuaca Hari Ini*\n\n" +
-                    "\n\n".join(laporan_grup)
-                )
-                kirim_telegram(gid, pesan)
+        if grup_peminta:
+            kirim_laporan_per_grup(list(grup_peminta), "🌤️ *Status Cuaca Hari Ini*")
 
     except Exception as e:
         print(f"Error cek perintah /cuaca: {e}")
@@ -142,8 +146,8 @@ def cek_notif_hujan_otomatis():
             tz_lokal = timezone(timedelta(hours=lok["offset_jam"]))
             sekarang = datetime.now(tz_lokal)
 
-            # Hanya eksekusi di awal jam (menit 00 sampai 09) agar tidak mengirim pesan ganda
-            if sekarang.minute >= 10:
+            # Hanya eksekusi di awal jam (menit 00 sampai 04) agar tidak mengirim pesan ganda
+            if sekarang.minute >= 5:
                 continue
 
             url = (
@@ -165,7 +169,6 @@ def cek_notif_hujan_otomatis():
                 curah_hujan = hourly_precip[idx]
                 peluang = hourly_prob[idx] if hourly_prob[idx] is not None else 0
 
-                # Hanya kirim jika 1 jam lagi diprediksi hujan
                 if curah_hujan > 0.2 or peluang >= 60:
                     jam_mulai = satu_jam_lagi.split("T")[1]
                     
@@ -200,5 +203,12 @@ def cek_notif_hujan_otomatis():
             print(f"Error cek hujan {lok['nama']}: {e}")
 
 if __name__ == "__main__":
-    cek_perintah_cuaca()
-    cek_notif_hujan_otomatis()
+    if IS_MANUAL:
+        # Startup message saat pertama kali klik Run workflow manual di GitHub
+        kirim_laporan_per_grup(
+            [GRUP_UTAMA, GRUP_KATEMAN],
+            "✅ *Bot Cuaca Aktif!* Berikut status cuaca hari ini:"
+        )
+    else:
+        cek_perintah_cuaca()
+        cek_notif_hujan_otomatis()
