@@ -35,19 +35,24 @@ def kirim_telegram(chat_id, pesan):
         print("ERROR: BOT_TOKEN belum diset!")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": str(chat_id),
-        "text": pesan,
-        "parse_mode": "Markdown"
-    }
-    try:
-        resp = requests.post(url, json=payload, timeout=15)
-        print(f"Status kirim ke {chat_id}: {resp.status_code}")
-    except Exception as e:
-        print(f"Gagal kirim ke {chat_id}: {e}")
+    for target_id in [str(chat_id), f"-100{str(chat_id).lstrip('-')}"]:
+        payload = {
+            "chat_id": target_id,
+            "text": pesan,
+            "parse_mode": "Markdown"
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            data = resp.json()
+            if data.get("ok"):
+                print(f"Berhasil kirim ke {target_id}")
+                return
+            else:
+                print(f"Gagal ke {target_id}: {data.get('description')}")
+        except Exception as e:
+            print(f"Error kirim ke {target_id}: {e}")
 
 def ambil_status_cuaca_hari_ini(lok):
-    """Mengambil status cuaca saat ini dan jadwal hujan sepanjang hari ini"""
     url = (
         f"https://api.open-meteo.com/v1/forecast?"
         f"latitude={lok['lat']}&longitude={lok['lon']}"
@@ -75,7 +80,6 @@ def ambil_status_cuaca_hari_ini(lok):
     else:
         status_now = f"☀️ Cerah / Berawan ({prob_now}%)"
 
-    # Cek jadwal hujan dari jam sekarang sampai pukul 23:00 hari ini
     jadwal_hujan = []
     for i in range(jam_now, 24):
         p = probs[i] or 0
@@ -93,7 +97,6 @@ def ambil_status_cuaca_hari_ini(lok):
     )
 
 def kirim_laporan_per_grup(target_grup_list, judul_header):
-    """Mengirim ringkasan cuaca hari ini ke daftar grup yang ditentukan"""
     for gid in target_grup_list:
         laporan_grup = []
         for lok in LOKASI:
@@ -108,16 +111,12 @@ def kirim_laporan_per_grup(target_grup_list, judul_header):
             kirim_telegram(gid, pesan)
 
 def cek_perintah_cuaca():
-    """Mengecek apakah ada yang mengetik /cuaca di grup Telegram"""
     if not BOT_TOKEN:
         return
     try:
-        # Pastikan tidak ada webhook aktif yang memblokir getUpdates
         requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=10)
-        
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
         res = requests.get(url, timeout=15).json()
-        print("Respon raw getUpdates:", res)
         
         updates = res.get("result", [])
         if not updates:
@@ -131,7 +130,6 @@ def cek_perintah_cuaca():
             msg = item.get("message", {}) or item.get("edited_message", {})
             text = msg.get("text", "").strip().lower()
             chat_id = str(msg.get("chat", {}).get("id", ""))
-            print(f"Terbaca chat -> ID: {chat_id} | Text: {text}")
 
             if "/cuaca" in text:
                 if chat_id in [GRUP_UTAMA, f"-100{GRUP_UTAMA.lstrip('-')}"]:
@@ -149,26 +147,22 @@ def cek_perintah_cuaca():
         print(f"Error cek perintah /cuaca: {e}")
 
 def cek_sapaan_pagi():
-    """Mengirim ucapan selamat pagi & prakiraan cuaca hari ini setiap jam 07:00 WIB"""
     tz_wib = timezone(timedelta(hours=7))
     sekarang_wib = datetime.now(tz_wib)
 
-    # Eksekusi hanya pada pukul 07:00 - 07:04 WIB agar terkirim 1x setiap pagi
-    if sekarang_wib.hour == 7 and sekarang_wib.minute < 5:
+    if sekarang_wib.hour == 5 and sekarang_wib.minute < 15:
         kirim_laporan_per_grup(
             [GRUP_UTAMA, GRUP_KATEMAN],
-            "🌅 *Selamat pagi!* Semoga harimu menyenangkan.\nBerikut keadaan cuaca hari ini:"
+            "🌅 *Selamat pagi!* Berikut kondisi cuaca saat ini & prakiraan hari ini:"
         )
 
 def cek_notif_hujan_otomatis():
-    """Hanya mengirim notifikasi otomatis 1 jam sebelum hujan"""
     for lok in LOKASI:
         try:
             tz_lokal = timezone(timedelta(hours=lok["offset_jam"]))
             sekarang = datetime.now(tz_lokal)
 
-            # Hanya eksekusi di awal jam (menit 00 sampai 04) agar tidak mengirim pesan ganda
-            if sekarang.minute >= 5:
+            if sekarang.minute >= 15:
                 continue
 
             url = (
