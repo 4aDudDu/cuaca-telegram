@@ -1,10 +1,10 @@
 name: Cek Cuaca Otomatis
 
 on:
-  schedule:
-    # Cek perintah /cuaca & peringatan hujan setiap 5 menit
-    - cron: '*/5 * * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
 
 jobs:
   run-weather-bot:
