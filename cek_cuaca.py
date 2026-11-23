@@ -73,7 +73,7 @@ def ambil_status_cuaca_hari_ini(lok):
     curah_now = precips[jam_now]
     prob_now = probs[jam_now] or 0
 
-    if curah_now > 0.2 or prob_now >= 60:
+    if curah_now > 0.1 or prob_now >= 50:
         status_now = f"🌧️ Hujan ({prob_now}%)"
     elif prob_now >= 30:
         status_now = f"⛅ Berawan Tebal ({prob_now}%)"
@@ -84,7 +84,7 @@ def ambil_status_cuaca_hari_ini(lok):
     for i in range(jam_now, 24):
         p = probs[i] or 0
         c = precips[i]
-        if c > 0.2 or p >= 60:
+        if c > 0.1 or p >= 50:
             jam_str = times[i].split("T")[1]
             jadwal_hujan.append(f"{jam_str} ({p}%)")
 
@@ -130,6 +130,7 @@ def cek_perintah_cuaca():
             msg = item.get("message", {}) or item.get("edited_message", {})
             text = msg.get("text", "").strip().lower()
             chat_id = str(msg.get("chat", {}).get("id", ""))
+            print(f"Pesan masuk dari {chat_id}: {text}")
 
             if "/cuaca" in text:
                 if chat_id in [GRUP_UTAMA, f"-100{GRUP_UTAMA.lstrip('-')}"]:
@@ -149,8 +150,10 @@ def cek_perintah_cuaca():
 def cek_sapaan_pagi():
     tz_wib = timezone(timedelta(hours=7))
     sekarang_wib = datetime.now(tz_wib)
+    print(f"Waktu eksekusi WIB: {sekarang_wib.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if sekarang_wib.hour == 5 and sekarang_wib.minute < 15:
+    # Toleransi 30 menit di jam 5 pagi untuk mengantisipasi delay server GitHub
+    if sekarang_wib.hour == 5 and sekarang_wib.minute < 30:
         kirim_laporan_per_grup(
             [GRUP_UTAMA, GRUP_KATEMAN],
             "🌅 *Selamat pagi!* Berikut kondisi cuaca saat ini & prakiraan hari ini:"
@@ -162,7 +165,9 @@ def cek_notif_hujan_otomatis():
             tz_lokal = timezone(timedelta(hours=lok["offset_jam"]))
             sekarang = datetime.now(tz_lokal)
 
-            if sekarang.minute >= 15:
+            # Toleransi 25 menit awal jam untuk mengantisipasi delay GitHub Actions
+            if sekarang.minute >= 25:
+                print(f"[{lok['nama']}] Skip notif hujan (menit ke-{sekarang.minute})")
                 continue
 
             url = (
@@ -183,8 +188,10 @@ def cek_notif_hujan_otomatis():
                 idx = hourly_times.index(satu_jam_lagi)
                 curah_hujan = hourly_precip[idx]
                 peluang = hourly_prob[idx] if hourly_prob[idx] is not None else 0
+                print(f"[{lok['nama']}] Cek {satu_jam_lagi} -> Curah: {curah_hujan}mm, Peluang: {peluang}%")
 
-                if curah_hujan > 0.2 or peluang >= 60:
+                # Threshold diturunkan sedikit agar hujan ringan tetap terdeteksi
+                if curah_hujan > 0.1 or peluang >= 50:
                     jam_mulai = satu_jam_lagi.split("T")[1]
                     
                     idx_selesai = idx + 1
@@ -194,7 +201,7 @@ def cek_notif_hujan_otomatis():
                     while idx_selesai < len(hourly_times):
                         c_next = hourly_precip[idx_selesai]
                         p_next = hourly_prob[idx_selesai] if hourly_prob[idx_selesai] is not None else 0
-                        if c_next > 0.2 or p_next >= 50:
+                        if c_next > 0.1 or p_next >= 45:
                             max_curah = max(max_curah, c_next)
                             max_peluang = max(max_peluang, p_next)
                             idx_selesai += 1
